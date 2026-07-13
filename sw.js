@@ -1,5 +1,5 @@
 /* FlightSpy — service worker: cachea la app para abrir al instante; los datos van siempre por red */
-const CACHE = 'flightspy-v14';
+const CACHE = 'flightspy-v15';
 const SHELL = [
   './',
   './index.html',

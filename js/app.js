@@ -89,6 +89,15 @@ function nearRunway(ac) {
 }
 
 function logEnter(ac) {
+  // Si salió hace <10 min es la misma pasada (parpadeo de cobertura): reabrir su entrada
+  const prev = [...zoneLog].reverse().find(x => x.hex === ac.hex && x.tOut && Date.now() - x.tOut < 10 * 60 * 1000);
+  if (prev) {
+    prev.tOut = null;
+    logActive.set(ac.hex, prev);
+    logUpdate(ac);
+    saveLog();
+    return;
+  }
   const e = {
     hex: ac.hex, cs: callsignOf(ac), reg: ac.r || '', type: ac.t || '',
     mil: isMil(ac), emg: isEmg(ac), apt: nearRunway(ac),
@@ -830,7 +839,7 @@ function aptRow(ac, extra) {
 function scheduledFlights() {
   const out = [];
   const now = Date.now();
-  const WINDOW = 100 * 60 * 1000; // ±100 min para casar horario con radar
+  const WINDOW = 45 * 60 * 1000; // ±45 min para casar horario con radar (más = falsos emparejamientos)
   for (const dayOffset of [0, 1]) {
     const base = new Date();
     base.setDate(base.getDate() + dayOffset);
