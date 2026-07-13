@@ -134,7 +134,14 @@ html, body {
 .ac-reg { font-size: 14px; color: var(--muted); font-weight: 600; }
 .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px; text-transform: uppercase; }
 .badge.mil { background: rgba(255,82,82,.15); color: var(--mil); border: 1px solid var(--mil); }
+.badge.civ { background: rgba(79,195,247,.12); color: var(--accent); border: 1px solid rgba(79,195,247,.5); }
 .badge.emg { background: rgba(255,179,0,.15); color: var(--emg); border: 1px solid var(--emg); animation: blink 1s infinite; }
+.ac-nophoto {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: var(--panel-2); border: 1px dashed var(--border); border-radius: 12px;
+  padding: 18px 12px; margin-bottom: 10px; color: var(--muted); font-size: 12px;
+}
+.ac-nophoto a { color: var(--accent); text-decoration: none; font-weight: 600; }
 @keyframes blink { 50% { opacity: .4; } }
 .ac-type { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 
@@ -181,8 +188,7 @@ html, body {
   border-bottom: 1px solid var(--border);
 }
 .day-head:first-child { margin-top: 4px; }
-.hist-row { cursor: default; }
-.hist-row.active { cursor: pointer; }
+.hist-row { cursor: pointer; }
 .hist-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .hist-row.active .hist-dot { box-shadow: 0 0 6px currentColor; animation: emgpulse 1.6s infinite; }
 .hist-time { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }

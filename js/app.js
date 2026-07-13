@@ -159,7 +159,22 @@ function altColor(alt) {
 function fmtAlt(a) { return a === 'ground' ? 'En tierra' : a != null ? `${a.toLocaleString('es')} ft` : '—'; }
 function fmtNum(v, dec = 0) { return v != null ? Number(v).toFixed(dec) : '—'; }
 
-function isMil(ac) { return ((ac.dbFlags || 0) & 1) === 1; }
+// Detección militar por tres vías: bandera de la base de datos ADS-B,
+// prefijo de indicativo militar, y operador registrado (vía adsbdb, asíncrono)
+const MIL_PREFIXES = new Set([
+  'AME', // Ejército del Aire y del Espacio (España)
+  'GAF', 'FAF', 'IAM', 'RRR', 'RFR', 'ASY', 'CFC', 'RCH', 'CNV', 'PAT',
+  'BAF', 'NAF', 'PLF', 'HUF', 'CEF', 'SUI', 'NOW', 'MMF', 'HAF', 'ROF',
+]);
+const milOverride = new Set(); // hex confirmados militares por su operador registrado
+const MIL_OWNER_RE = /air force|army|navy|ministry of defen[cs]e|military|ej[ée]rcito|armada espa|fuerza a[ée]rea|guardia civil|luftwaffe|arm[ée]e de l'air|nato/i;
+
+function isMil(ac) {
+  if (((ac.dbFlags || 0) & 1) === 1) return true;
+  if (milOverride.has(ac.hex)) return true;
+  const m = (ac.flight || '').trim().match(/^([A-Z]{3})\d/);
+  return !!(m && MIL_PREFIXES.has(m[1]));
+}
 function isEmg(ac) {
   return ['7500', '7600', '7700'].includes(ac.squawk) || (ac.emergency && ac.emergency !== 'none');
 }
@@ -446,7 +461,7 @@ async function renderDetail(hex, full) {
     <div class="ac-head">
       <span class="ac-callsign">${cs}</span>
       <span class="ac-reg">${ac.r || ''}</span>
-      ${mil ? '<span class="badge mil">Militar</span>' : ''}
+      ${mil ? '<span class="badge mil">🪖 Militar</span>' : '<span class="badge civ">✈️ Civil</span>'}
       ${emg ? `<span class="badge emg">Emergencia ${ac.squawk || ''}</span>` : ''}
     </div>
     <div class="ac-type">${ac.desc || ac.t || 'Tipo desconocido'}${ac.year ? ` · ${ac.year}` : ''}${ac.ownOp ? ` · ${ac.ownOp}` : ''}</div>
@@ -520,6 +535,18 @@ async function loadPhoto(ac) {
         <div class="ac-photo-credit">📷 vía <a href="https://adsbdb.com" target="_blank" rel="noopener">adsbdb.com</a></div>`;
     }
   }
+  if (!html) {
+    // Sin foto pública en ninguna base de datos: silueta + enlace de búsqueda
+    const q = ac.r || ac.hex.toUpperCase();
+    const searchUrl = ac.r
+      ? `https://www.jetphotos.com/registration/${encodeURIComponent(ac.r)}`
+      : `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(q + ' aircraft')}`;
+    html = `<div class="ac-nophoto">
+        ${planeSVG('#2e4266', 64, 45, ac.category === 'A7')}
+        <div>Sin foto pública de esta aeronave</div>
+        <a href="${searchUrl}" target="_blank" rel="noopener">🔍 Buscar fotos de ${q}</a>
+      </div>`;
+  }
   state.photoCache.set(ac.hex, html);
   if (state.selected === ac.hex && slot()) slot().innerHTML = html;
 }
@@ -531,6 +558,12 @@ async function loadAcInfo(ac) {
   const a = await acInfo(ac.hex);
   let html = '';
   if (a) {
+    // Si el operador registrado es una fuerza armada, marcarlo militar en todo el sistema
+    if (a.registered_owner && MIL_OWNER_RE.test(a.registered_owner) && !milOverride.has(ac.hex)) {
+      milOverride.add(ac.hex);
+      const live = state.aircraft.get(ac.hex);
+      if (live) { ensureMarker(live); logUpdate(live); }
+    }
     const bits = [];
     const full = [a.manufacturer, a.type].filter(Boolean).join(' ');
     if (full) bits.push(full);
@@ -591,6 +624,40 @@ function renderList() {
     row.addEventListener('click', () => selectAircraft(row.dataset.hex)));
 }
 
+// ---------- Ficha de archivo (avión del historial que ya se fue) ----------
+function renderHistDetail(e) {
+  state.selected = e.hex; // para que foto/info/ruta rellenen los huecos al llegar
+  closeSheet('list'); closeSheet('settings'); closeSheet('history');
+  const el = document.getElementById('detail-content');
+  const durMin = Math.max(1, Math.round(((e.tOut || e.tLast) - e.tIn) / 60000));
+  const mil = e.mil || milOverride.has(e.hex);
+  el.innerHTML = `
+    <div id="photo-slot"></div>
+    <div class="ac-head">
+      <span class="ac-callsign">${e.cs}</span>
+      <span class="ac-reg">${e.reg || ''}</span>
+      ${mil ? '<span class="badge mil">🪖 Militar</span>' : '<span class="badge civ">✈️ Civil</span>'}
+      ${e.emg ? '<span class="badge emg">Tuvo emergencia</span>' : ''}
+    </div>
+    <div class="ac-type">${e.type || 'Tipo desconocido'} · pasó por la zona ${dayLabel(e.tIn).toLowerCase()}</div>
+    <div id="acinfo-slot"></div>
+    <div id="route-slot"></div>
+    <div class="grid">
+      <div class="cell"><div class="k">Entró en zona</div><div class="v">${hhmm(e.tIn)}</div></div>
+      <div class="cell"><div class="k">Salió</div><div class="v">${e.tOut ? hhmm(e.tOut) : '—'}</div></div>
+      <div class="cell"><div class="k">Tiempo en zona</div><div class="v">${durMin} <span class="u">min</span></div></div>
+      <div class="cell"><div class="k">Dist. mínima</div><div class="v">${e.minDist} <span class="u">km</span></div></div>
+      <div class="cell"><div class="k">ICAO hex</div><div class="v">${e.hex.toUpperCase()}</div></div>
+      <div class="cell"><div class="k">Día</div><div class="v" style="font-size:12px">${new Date(e.tIn).toLocaleDateString('es', { day: 'numeric', month: 'short' })}</div></div>
+    </div>`;
+  openSheet('detail');
+  // Reutilizar toda la maquinaria de foto/operador/ruta con un objeto mínimo
+  const ghost = { hex: e.hex, r: e.reg, flight: e.cs, dbFlags: mil ? 1 : 0, category: '' };
+  loadPhoto(ghost);
+  loadAcInfo(ghost);
+  loadRoute(ghost);
+}
+
 // ---------- Historial (interfaz) ----------
 function hhmm(t) { return new Date(t).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }); }
 function dayLabel(t) {
@@ -613,12 +680,12 @@ function renderHistory() {
   }
 
   let html = '', lastDay = '';
-  for (const e of arr) {
+  arr.forEach((e, i) => {
     const day = dayLabel(e.tIn);
     if (day !== lastDay) { html += `<div class="day-head">${day}</div>`; lastDay = day; }
     const active = logActive.get(e.hex) === e;
     const range = active ? `${hhmm(e.tIn)} → <b class="inzone">en zona</b>` : `${hhmm(e.tIn)} → ${hhmm(e.tOut)}`;
-    html += `<div class="list-row hist-row ${active ? 'active' : ''}" data-hex="${active ? e.hex : ''}">
+    html += `<div class="list-row hist-row ${active ? 'active' : ''}" data-i="${i}">
       <div class="hist-dot" style="background:${e.emg ? '#ffb300' : e.mil ? '#ff5252' : '#4fc3f7'}"></div>
       <div class="list-main">
         <div class="list-cs">${e.cs} ${e.mil ? '🪖' : ''}${e.emg ? '🚨' : ''}</div>
@@ -629,10 +696,15 @@ function renderHistory() {
         <div class="list-dist">mín. ${e.minDist} km</div>
       </div>
     </div>`;
-  }
+  });
   el.innerHTML = html;
-  el.querySelectorAll('.hist-row.active').forEach(row =>
-    row.addEventListener('click', () => { if (row.dataset.hex) selectAircraft(row.dataset.hex); }));
+  el.querySelectorAll('.hist-row').forEach(row =>
+    row.addEventListener('click', () => {
+      const e = arr[Number(row.dataset.i)];
+      if (!e) return;
+      if (logActive.get(e.hex) === e) selectAircraft(e.hex); // sigue en zona: al mapa
+      else renderHistDetail(e);                              // ya se fue: ficha de archivo
+    }));
 }
 
 document.querySelectorAll('#history .list-filters .chip').forEach(chip => {
