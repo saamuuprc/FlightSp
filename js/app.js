@@ -76,10 +76,15 @@ function saveLog() {
 }
 setInterval(() => { if (logDirty) saveLog(); }, 30000);
 
+// Un avión en tierra o muy bajo junto a LELN = aterrizaje/despegue presenciado
+function nearRunway(ac) {
+  return ac.distKm < 6 && (ac.alt_baro === 'ground' || (typeof ac.alt_baro === 'number' && ac.alt_baro < 3500));
+}
+
 function logEnter(ac) {
   const e = {
     hex: ac.hex, cs: callsignOf(ac), reg: ac.r || '', type: ac.t || '',
-    mil: isMil(ac), emg: isEmg(ac),
+    mil: isMil(ac), emg: isEmg(ac), apt: nearRunway(ac),
     tIn: Date.now(), tOut: null, tLast: Date.now(),
     minDist: +ac.distKm.toFixed(1),
   };
@@ -97,6 +102,7 @@ function logUpdate(ac) {
   if ((ac.flight || '').trim()) e.cs = (ac.flight || '').trim();
   if (isMil(ac)) e.mil = true;
   if (isEmg(ac)) e.emg = true;
+  if (nearRunway(ac)) e.apt = true;
   logDirty = true;
 }
 function logExit(hex) {
@@ -113,15 +119,15 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   subdomains: 'abcd', maxZoom: 19,
 }).addTo(map);
 
-// Aeropuerto con baliza pulsante
+// Aeropuerto con baliza pulsante — pulsable: abre el panel del aeropuerto
 L.marker([AIRPORT.lat, AIRPORT.lon], {
   icon: L.divIcon({
     className: 'apt-icon',
     html: '<div class="apt-pulse"></div><div class="apt-core"></div><div class="apt-tag">LELN</div>',
-    iconSize: [16, 16], iconAnchor: [8, 8],
+    iconSize: [44, 44], iconAnchor: [22, 22],
   }),
-  interactive: false, keyboard: false,
-}).addTo(map);
+  keyboard: false,
+}).addTo(map).on('click', () => renderAirportPanel());
 
 // Anillos interiores fijos de referencia: 10 / 25 km
 for (const [km, style] of [
@@ -399,6 +405,7 @@ function update(list) {
   state.statTargets = { closest: closest?.hex, fastest: fastest?.hex, highest: highest?.hex };
 
   if (state.selected && state.aircraft.has(state.selected)) renderDetail(state.selected, false);
+  if (state.aptPanel && !document.getElementById('detail').classList.contains('hidden')) renderAirportPanel();
   if (!document.getElementById('list').classList.contains('hidden')) renderList();
   if (!document.getElementById('history').classList.contains('hidden')) renderHistory();
 }
@@ -489,6 +496,7 @@ function notify(title, body, cls, hex) {
 function selectAircraft(hex) {
   const prev = state.selected;
   state.selected = hex;
+  state.aptPanel = false;
   if (prev && state.aircraft.has(prev)) ensureMarker(state.aircraft.get(prev));
   closeSheet('list'); closeSheet('settings'); closeSheet('history');
   renderDetail(hex, true);
@@ -741,6 +749,7 @@ function renderList() {
 // ---------- Ficha de archivo (avión del historial que ya se fue) ----------
 function renderHistDetail(e) {
   state.selected = e.hex; // para que foto/info/ruta rellenen los huecos al llegar
+  state.aptPanel = false;
   closeSheet('list'); closeSheet('settings'); closeSheet('history');
   const el = document.getElementById('detail-content');
   const durMin = Math.max(1, Math.round(((e.tOut || e.tLast) - e.tIn) / 60000));
@@ -770,6 +779,83 @@ function renderHistDetail(e) {
   loadPhoto(ghost);
   loadAcInfo(ghost);
   loadRoute(ghost);
+}
+
+// ---------- Panel del aeropuerto (LELN) ----------
+// Clasifica cada avión en zona respecto al aeropuerto usando su física real
+function aptStatus(ac) {
+  if (ac.alt_baro === 'ground' && ac.distKm < 6) return 'ground';
+  const rd = state.routeDataCache.get((ac.flight || '').trim());
+  if (rd?.dCode === 'LEN') return 'arriving';
+  if (rd?.oCode === 'LEN') return 'departing';
+  if (typeof ac.alt_baro === 'number' && ac.alt_baro < 13000 && ac.track != null && ac.lat != null) {
+    const vr = ac.baro_rate ?? ac.geom_rate ?? 0;
+    const toApt = angDiff(ac.track, bearingDeg(ac.lat, ac.lon, AIRPORT.lat, AIRPORT.lon));
+    const fromApt = angDiff(ac.track, bearingDeg(AIRPORT.lat, AIRPORT.lon, ac.lat, ac.lon));
+    if (toApt < 50 && vr < 200) return 'arriving';    // apunta al aeropuerto y no está subiendo
+    if (fromApt < 60 && vr > 200 && ac.distKm < 40) return 'departing'; // se aleja subiendo
+  }
+  return null;
+}
+
+function aptRow(ac, extra) {
+  return `<div class="list-row" data-hex="${ac.hex}">
+    <div class="list-plane">${planeSVG(colorOf(ac), 22, ac.track || 0, ac.category === 'A7')}</div>
+    <div class="list-main">
+      <div class="list-cs">${callsignOf(ac)} ${isMil(ac) ? '🪖' : ''}</div>
+      <div class="list-sub">${[ac.t, ac.r].filter(Boolean).join(' · ') || ac.hex.toUpperCase()}</div>
+    </div>
+    <div class="list-right">
+      <div class="list-alt">${extra}</div>
+      <div class="list-dist">${fmtAlt(ac.alt_baro)} · ${ac.distKm.toFixed(1)} km</div>
+    </div>
+  </div>`;
+}
+
+function renderAirportPanel() {
+  state.selected = null;
+  state.aptPanel = true;
+  closeSheet('list'); closeSheet('settings'); closeSheet('history');
+  const el = document.getElementById('detail-content');
+  const live = [...state.aircraft.values()].sort((a, b) => a.distKm - b.distKm);
+  const arriving = live.filter(a => aptStatus(a) === 'arriving');
+  const departing = live.filter(a => ['departing', 'ground'].includes(aptStatus(a)));
+  const recent = zoneLog.filter(e => e.apt).sort((a, b) => b.tIn - a.tIn).slice(0, 20);
+
+  el.innerHTML = `
+    <div class="ac-head">
+      <span class="ac-callsign">LELN</span>
+      <span class="ac-reg">Aeropuerto de León</span>
+    </div>
+    <div class="ac-type">📡 Detectado en vivo por el radar · Los horarios programados oficiales: <a href="https://www.aena.es/es/leon.html" target="_blank" rel="noopener" style="color:var(--accent)">panel de AENA ↗</a></div>
+    <h3>🛬 Llegando ahora</h3>
+    ${arriving.length ? arriving.map(a => aptRow(a, 'en aproximación')).join('') : '<p class="hint">Nada aproximándose a LELN ahora mismo.</p>'}
+    <h3>🛫 Saliendo / en tierra</h3>
+    ${departing.length ? departing.map(a => aptRow(a, aptStatus(a) === 'ground' ? 'en tierra' : 'despegando')).join('') : '<p class="hint">Ninguna salida en curso detectada.</p>'}
+    <h3>🕐 Actividad reciente en el aeropuerto</h3>
+    ${recent.length ? recent.map(e => `
+      <div class="list-row hist-row" data-key="${e.tIn}:${e.hex}">
+        <div class="hist-dot" style="background:${e.mil ? '#ff5252' : '#4fc3f7'}"></div>
+        <div class="list-main">
+          <div class="list-cs">${e.cs} ${e.mil ? '🪖' : ''}</div>
+          <div class="list-sub">${[e.type, e.reg].filter(Boolean).join(' · ') || e.hex.toUpperCase()}</div>
+        </div>
+        <div class="list-right">
+          <div class="hist-time">${dayLabel(e.tIn)} ${hhmm(e.tIn)}</div>
+          <div class="list-dist">pasó a ${e.minDist} km</div>
+        </div>
+      </div>`).join('') : '<p class="hint">El radar aún no ha presenciado aterrizajes ni despegues en LELN. Quedarán registrados aquí (se guardan 3 días).</p>'}`;
+
+  el.querySelectorAll('.list-row[data-hex]').forEach(row =>
+    row.addEventListener('click', () => selectAircraft(row.dataset.hex)));
+  el.querySelectorAll('.hist-row[data-key]').forEach(row =>
+    row.addEventListener('click', () => {
+      const [tIn, hex] = row.dataset.key.split(':');
+      const e = zoneLog.find(x => x.tIn === Number(tIn) && x.hex === hex);
+      if (!e) return;
+      if (logActive.get(hex) === e) selectAircraft(hex); else renderHistDetail(e);
+    }));
+  openSheet('detail');
 }
 
 // ---------- Historial (interfaz) ----------
@@ -837,6 +923,7 @@ function closeSheet(id) {
   if (id === 'detail') {
     const prev = state.selected;
     state.selected = null;
+    state.aptPanel = false;
     if (prev && state.aircraft.has(prev)) ensureMarker(state.aircraft.get(prev));
   }
 }
