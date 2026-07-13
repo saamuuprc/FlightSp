@@ -3,9 +3,10 @@
 
 // ---------- Configuración ----------
 const AIRPORT = { lat: 42.5890, lon: -5.6556, code: 'LELN', name: 'Aeropuerto de León' };
-const ZONE_KM = 50;            // solo nos interesan los aviones dentro de este radio
-const FETCH_NM = 30;           // radio de descarga (30 nm ≈ 55,6 km, con margen)
 const NM_TO_KM = 1.852;
+// Radio de la zona de vigilancia: configurable en Ajustes (settings.zoneKm)
+function zoneKm() { return settings.zoneKm; }
+function fetchRadiusNm() { return Math.min(250, Math.ceil(settings.zoneKm / NM_TO_KM * 1.15)); }
 
 const SOURCES = [
   { name: 'adsb.lol',       url: (la, lo, r) => `https://api.adsb.lol/v2/point/${la}/${lo}/${r}` },
@@ -14,6 +15,7 @@ const SOURCES = [
 ];
 
 const DEFAULTS = {
+  zoneKm: 50,
   interval: 5,
   alertEnabled: false,
   alertMil: true,
@@ -44,6 +46,7 @@ const state = {
   histFilter: 'all',
   alerted: new Map(),
   routeCache: new Map(),
+  routeDataCache: new Map(), // callsign -> coordenadas de ruta validada (para el progreso)
   photoCache: new Map(),
   infoCache: new Map(),    // hex -> html con fabricante/operador (adsbdb)
   acInfoCache: new Map(),  // hex -> respuesta cruda de adsbdb
@@ -120,21 +123,30 @@ L.marker([AIRPORT.lat, AIRPORT.lon], {
   interactive: false, keyboard: false,
 }).addTo(map);
 
-// Anillos de distancia: 10 / 25 / 50 km
+// Anillos interiores fijos de referencia: 10 / 25 km
 for (const [km, style] of [
   [10, { opacity: .18, dashArray: '2 6' }],
   [25, { opacity: .22, dashArray: '4 8' }],
-  [50, { opacity: .5, weight: 1.5 }],
 ]) {
   L.circle([AIRPORT.lat, AIRPORT.lon], {
     radius: km * 1000, color: '#4fc3f7', weight: 1, fill: false, interactive: false, ...style,
   }).addTo(map);
 }
-// Etiqueta del anillo exterior
-L.marker([AIRPORT.lat + 50 / 111.32, AIRPORT.lon], {
-  icon: L.divIcon({ className: 'ring-label', html: '50 km', iconSize: [40, 14], iconAnchor: [20, 7] }),
+// Anillo exterior = límite de la zona (configurable en Ajustes)
+const zoneRing = L.circle([AIRPORT.lat, AIRPORT.lon], {
+  radius: settings.zoneKm * 1000, color: '#4fc3f7', weight: 1.5, opacity: .5, fill: false, interactive: false,
+}).addTo(map);
+const zoneRingLabel = L.marker([AIRPORT.lat + settings.zoneKm / 111.32, AIRPORT.lon], {
+  icon: L.divIcon({ className: 'ring-label', html: `${settings.zoneKm} km`, iconSize: [44, 14], iconAnchor: [22, 7] }),
   interactive: false, keyboard: false,
 }).addTo(map);
+
+function applyZoneRadius() {
+  zoneRing.setRadius(settings.zoneKm * 1000);
+  zoneRingLabel.setLatLng([AIRPORT.lat + settings.zoneKm / 111.32, AIRPORT.lon]);
+  zoneRingLabel.setIcon(L.divIcon({ className: 'ring-label', html: `${settings.zoneKm} km`, iconSize: [44, 14], iconAnchor: [22, 7] }));
+  map.fitBounds(zoneRing.getBounds(), { padding: [10, 10] });
+}
 
 // Círculo de radio de alerta
 let nearCircle = L.circle([AIRPORT.lat, AIRPORT.lon], {
@@ -301,7 +313,7 @@ async function fetchAircraft() {
     try {
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), 8000);
-      const res = await fetch(src.url(AIRPORT.lat, AIRPORT.lon, FETCH_NM), { signal: ctrl.signal });
+      const res = await fetch(src.url(AIRPORT.lat, AIRPORT.lon, fetchRadiusNm()), { signal: ctrl.signal });
       clearTimeout(to);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -324,7 +336,7 @@ function update(list) {
     ac.hex = (ac.hex || '').toLowerCase();
     if (!ac.hex) continue;
     ac.distKm = haversineKm(AIRPORT.lat, AIRPORT.lon, ac.lat, ac.lon);
-    if (ac.distKm > ZONE_KM) continue; // fuera de la zona de 50 km: no nos interesa
+    if (ac.distKm > zoneKm()) continue; // fuera de la zona de vigilancia: no nos interesa
     seen.add(ac.hex);
     const isNew = !state.aircraft.has(ac.hex);
     state.aircraft.set(ac.hex, ac);
@@ -505,6 +517,7 @@ async function renderDetail(hex, full) {
     <div class="ac-type">${ac.desc || ac.t || 'Tipo desconocido'}${ac.year ? ` · ${ac.year}` : ''}${ac.ownOp ? ` · ${ac.ownOp}` : ''}</div>
     <div id="acinfo-slot"></div>
     <div id="route-slot"></div>
+    <div id="progress-slot"></div>
     <div class="grid">
       <div class="cell"><div class="k">Altitud</div><div class="v">${fmtAlt(ac.alt_baro)}</div></div>
       <div class="cell"><div class="k">Velocidad</div><div class="v">${fmtNum(ac.gs)} <span class="u">kt</span></div><div class="u">${ac.gs != null ? Math.round(ac.gs * 1.852) + ' km/h' : ''}</div></div>
@@ -512,6 +525,7 @@ async function renderDetail(hex, full) {
       <div class="cell"><div class="k">Rumbo</div><div class="v">${fmtNum(ac.track)}°</div></div>
       <div class="cell"><div class="k">Dist. a LELN</div><div class="v">${ac.distKm.toFixed(1)} <span class="u">km</span></div></div>
       <div class="cell"><div class="k">Squawk</div><div class="v">${ac.squawk || '—'}</div></div>
+      ${extraCells(ac)}
       <div class="cell"><div class="k">ICAO hex</div><div class="v">${ac.hex.toUpperCase()}</div></div>
       <div class="cell"><div class="k">Categoría</div><div class="v" style="font-size:11px">${CATEGORIES[ac.category] || ac.category || '—'}</div></div>
       <div class="cell"><div class="k">Señal</div><div class="v">${ac.rssi != null ? ac.rssi + ' dB' : '—'}</div><div class="u">${ac.messages ? ac.messages.toLocaleString('es') + ' msgs' : ''}</div></div>
@@ -529,6 +543,33 @@ async function renderDetail(hex, full) {
     const route = state.routeCache.get((ac.flight || '').trim());
     if (route) document.getElementById('route-slot').innerHTML = route;
   }
+  // Progreso del vuelo: se recalcula en cada actualización (ETA en vivo)
+  const rd = state.routeDataCache.get((ac.flight || '').trim());
+  if (rd) document.getElementById('progress-slot').innerHTML = flightProgressHtml(ac, rd);
+}
+
+// Datos ADS-B avanzados, solo si el avión los emite
+function extraCells(ac) {
+  const cells = [];
+  if (ac.mach != null) cells.push(`<div class="cell"><div class="k">Mach</div><div class="v">${ac.mach.toFixed(2)}</div></div>`);
+  if (ac.ias != null || ac.tas != null) cells.push(`<div class="cell"><div class="k">IAS / TAS</div><div class="v">${fmtNum(ac.ias)}/${fmtNum(ac.tas)} <span class="u">kt</span></div></div>`);
+  if (ac.ws != null && ac.wd != null) cells.push(`<div class="cell"><div class="k">Viento en altura</div><div class="v"><span style="display:inline-block;transform:rotate(${(ac.wd + 180) % 360}deg)">↑</span> ${Math.round(ac.ws)} <span class="u">kt</span></div><div class="u">del ${Math.round(ac.wd)}°</div></div>`);
+  if (ac.oat != null || ac.tat != null) cells.push(`<div class="cell"><div class="k">Temp. exterior</div><div class="v">${Math.round(ac.oat ?? ac.tat)} <span class="u">°C</span></div></div>`);
+  if (ac.nav_altitude_mcp != null) cells.push(`<div class="cell"><div class="k">Alt. selecc. (AP)</div><div class="v">${ac.nav_altitude_mcp.toLocaleString('es')} <span class="u">ft</span></div></div>`);
+  return cells.join('');
+}
+
+// Progreso del vuelo: barra con los km reales recorridos y restantes (posiciones reales, sin estimaciones)
+function flightProgressHtml(ac, rd) {
+  if (ac.lat == null || rd.oLat == null) return '';
+  const flown = haversineKm(rd.oLat, rd.oLon, ac.lat, ac.lon);
+  const remain = haversineKm(ac.lat, ac.lon, rd.dLat, rd.dLon);
+  const pct = Math.max(2, Math.min(98, flown / (flown + remain) * 100));
+  return `<div class="fp">
+      <div class="fp-ends"><b>${rd.oCode}</b><span>${Math.round(pct)}%</span><b>${rd.dCode}</b></div>
+      <div class="fp-bar"><div class="fp-fill" style="width:${pct}%"></div><div class="fp-plane" style="left:${pct}%">✈</div></div>
+      <div class="fp-ends"><span>${Math.round(flown).toLocaleString('es')} km recorridos</span><span>quedan ${Math.round(remain).toLocaleString('es')} km</span></div>
+    </div>`;
 }
 
 async function fetchJson(url) {
@@ -633,6 +674,10 @@ async function loadRoute(ac) {
         </div>
         <div class="route-check">✓ Ruta contrastada con la posición y rumbo reales del vuelo</div>
         ${fr.airline ? `<div class="ac-type">🏢 ${fr.airline.name}${fr.airline.country ? ' · ' + fr.airline.country : ''}</div>` : ''}`;
+        state.routeDataCache.set(cs, {
+          oLat: fr.origin.latitude, oLon: fr.origin.longitude, oCode: fr.origin.iata_code || fr.origin.icao_code,
+          dLat: fr.destination.latitude, dLon: fr.destination.longitude, dCode: fr.destination.iata_code || fr.destination.icao_code,
+        });
       }
     }
   } catch {}
@@ -646,6 +691,10 @@ async function loadRoute(ac) {
   }
   state.routeCache.set(cs, html);
   if (state.selected === ac.hex && slot()) slot().innerHTML = html;
+  // Pintar el progreso del vuelo al momento, sin esperar al siguiente refresco
+  const rd = state.routeDataCache.get(cs);
+  const ps = document.getElementById('progress-slot');
+  if (rd && ps && state.selected === ac.hex) ps.innerHTML = flightProgressHtml(ac, rd);
 }
 
 // ---------- Lista ----------
@@ -669,7 +718,7 @@ function renderList() {
         <div class="list-dist">${ac.distKm.toFixed(1)} km · ${ac.gs != null ? Math.round(ac.gs) + ' kt' : '—'}</div>
       </div>
     </div>`;
-  }).join('') : '<p class="hint">Ningún avión en la zona de 50 km con este filtro ahora mismo. La zona es tranquila — cuando pase algo, aquí estará. 📡</p>';
+  }).join('') : `<p class="hint">Ningún avión en la zona de ${settings.zoneKm} km con este filtro ahora mismo. La zona es tranquila — cuando pase algo, aquí estará. 📡</p>`;
 
   el.querySelectorAll('.list-row').forEach(row =>
     row.addEventListener('click', () => selectAircraft(row.dataset.hex)));
@@ -726,7 +775,7 @@ function renderHistory() {
   if (state.histFilter === 'civ') arr = arr.filter(e => !e.mil);
 
   if (!arr.length) {
-    el.innerHTML = '<p class="hint">Aún no hay registros con este filtro. En cuanto algo cruce la zona de 50 km, quedará apuntado aquí con su hora. 📋</p>';
+    el.innerHTML = '<p class="hint">Aún no hay registros con este filtro. En cuanto algo cruce la zona de vigilancia, quedará apuntado aquí con su hora. 📋</p>';
     return;
   }
 
@@ -829,6 +878,7 @@ function bindCheck(id, key, onChange) {
   input.addEventListener('change', () => { settings[key] = input.checked; saveSettings(); if (onChange) onChange(); });
 }
 
+bindRange('set-zone', 'zoneKm', 'zone-val', applyZoneRadius);
 bindRange('set-interval', 'interval', 'interval-val', startPolling);
 bindRange('alert-near-km', 'alertNearKm', 'near-km-val', () => nearCircle.setRadius(settings.alertNearKm * 1000));
 nearCircle.setRadius(settings.alertNearKm * 1000);

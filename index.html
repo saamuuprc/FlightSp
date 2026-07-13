@@ -80,7 +80,7 @@
     <div class="sheet-handle"></div>
     <button class="sheet-close" id="history-close" aria-label="Cerrar">✕</button>
     <h2>🕐 Historial de la zona</h2>
-    <p class="hint" style="margin-top:-4px">Todo lo que ha entrado en los 50 km de LELN. Se guarda 3 días en este dispositivo.</p>
+    <p class="hint" style="margin-top:-4px">Todo lo que ha entrado en la zona de vigilancia de LELN. Se guarda 3 días en este dispositivo.</p>
     <div class="list-filters">
       <button class="chip active" data-hfilter="all">Todos</button>
       <button class="chip" data-hfilter="mil">🪖 Militares</button>
@@ -95,7 +95,12 @@
     <button class="sheet-close" id="settings-close" aria-label="Cerrar">✕</button>
     <h2>Ajustes</h2>
 
-    <p class="hint">📍 Zona de vigilancia: <b>50 km alrededor del Aeropuerto de León (LELN)</b>. Todo lo que vuele ahí dentro —civil o militar— aparece en el radar.</p>
+    <p class="hint">📍 Zona de vigilancia centrada en el <b>Aeropuerto de León (LELN)</b>. Todo lo que vuele dentro del radio —civil o militar— aparece en el radar.</p>
+
+    <div class="setting">
+      <label for="set-zone">Radio de la zona: <b id="zone-val">50</b> km</label>
+      <input type="range" id="set-zone" min="20" max="250" step="5" value="50">
+    </div>
 
     <div class="setting">
       <label for="set-interval">Actualización cada <b id="interval-val">6</b> s</label>
