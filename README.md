@@ -5,7 +5,8 @@ Radar de vuelos en tiempo real alrededor de León, para frikis de los aviones. F
 ## Qué hace
 
 - **Mapa radar en directo** centrado en el Aeropuerto de León (LELN) con todos los aviones —civiles y militares— en la zona de **50 km a la redonda**, actualizado cada 3–30 s, con anillos de distancia (10/25/50 km) y **movimiento fluido continuo** (cada avión avanza en el mapa según su velocidad y rumbo reales entre actualizaciones).
-- **Ficha completa de cada avión**: foto real (planespotters.net), ruta origen→destino y aerolínea (adsbdb.com), matrícula, modelo, altitud, velocidad, velocidad vertical, rumbo, squawk, código ICAO hex, categoría de estela, distancia a León, intensidad de señal y nº de mensajes ADS-B.
+- **Ficha completa de cada avión**: foto real con triple búsqueda (planespotters por hex → por matrícula → adsbdb), fabricante y operador registrado (también de militares: «Spanish Air Force», etc.), ruta origen→destino y aerolínea, matrícula, modelo, altitud, velocidad, velocidad vertical, rumbo, squawk, código ICAO hex, categoría de estela, distancia al aeropuerto, intensidad de señal y nº de mensajes ADS-B.
+- **Historial de la zona**: registro con hora de entrada y salida de cada avión (civil o militar) que cruza los 50 km, con distancia mínima alcanzada, filtros y agrupado por día. Se conserva 3 días en el dispositivo.
 - **Detección de militares** (bandera de base de datos ADS-B) y **emergencias** (squawk 7500/7600/7700).
 - **Alertas configurables** con notificación, sonido y vibración: avión militar, emergencia, o cualquier avión a menos de X km de León.
 - **Estelas de trayectoria**, etiquetas de vuelo, colores por altitud (ámbar=bajo → violeta=crucero), lista ordenada por distancia con filtros.

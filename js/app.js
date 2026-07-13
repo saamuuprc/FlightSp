@@ -41,11 +41,65 @@ const state = {
   selected: null,
   sourceIdx: 0,
   listFilter: 'all',
+  histFilter: 'all',
   alerted: new Map(),
   routeCache: new Map(),
   photoCache: new Map(),
+  infoCache: new Map(),    // hex -> html con fabricante/operador (adsbdb)
+  acInfoCache: new Map(),  // hex -> respuesta cruda de adsbdb
   timer: null,
 };
+
+// ---------- Historial de la zona (persistente 3 días) ----------
+const LOG_KEY = 'fs_log';
+const LOG_MAX = 500;
+const LOG_KEEP_MS = 3 * 24 * 3600 * 1000;
+const logActive = new Map(); // hex -> entrada abierta
+let zoneLog = loadLog();
+let logDirty = false;
+
+function loadLog() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+    for (const e of arr) if (!e.tOut) e.tOut = e.tLast || e.tIn; // cerrar pasadas de sesiones anteriores
+    return arr.filter(e => Date.now() - e.tIn < LOG_KEEP_MS);
+  } catch { return []; }
+}
+function saveLog() {
+  zoneLog = zoneLog.filter(e => Date.now() - e.tIn < LOG_KEEP_MS);
+  if (zoneLog.length > LOG_MAX) zoneLog = zoneLog.slice(-LOG_MAX);
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(zoneLog)); } catch {}
+  logDirty = false;
+}
+setInterval(() => { if (logDirty) saveLog(); }, 30000);
+
+function logEnter(ac) {
+  const e = {
+    hex: ac.hex, cs: callsignOf(ac), reg: ac.r || '', type: ac.t || '',
+    mil: isMil(ac), emg: isEmg(ac),
+    tIn: Date.now(), tOut: null, tLast: Date.now(),
+    minDist: +ac.distKm.toFixed(1),
+  };
+  zoneLog.push(e);
+  logActive.set(ac.hex, e);
+  saveLog();
+}
+function logUpdate(ac) {
+  const e = logActive.get(ac.hex);
+  if (!e) return;
+  e.tLast = Date.now();
+  if (ac.distKm < e.minDist) e.minDist = +ac.distKm.toFixed(1);
+  if (!e.reg && ac.r) e.reg = ac.r;
+  if (!e.type && ac.t) e.type = ac.t;
+  if ((ac.flight || '').trim()) e.cs = (ac.flight || '').trim();
+  if (isMil(ac)) e.mil = true;
+  if (isEmg(ac)) e.emg = true;
+  logDirty = true;
+}
+function logExit(hex) {
+  const e = logActive.get(hex);
+  if (e) { e.tOut = Date.now(); logActive.delete(hex); saveLog(); }
+}
 
 // ---------- Mapa ----------
 const map = L.map('map', { zoomControl: true, attributionControl: true, zoomAnimation: true })
@@ -220,7 +274,9 @@ function update(list) {
     ac.distKm = haversineKm(AIRPORT.lat, AIRPORT.lon, ac.lat, ac.lon);
     if (ac.distKm > ZONE_KM) continue; // fuera de la zona de 50 km: no nos interesa
     seen.add(ac.hex);
+    const isNew = !state.aircraft.has(ac.hex);
     state.aircraft.set(ac.hex, ac);
+    if (isNew) logEnter(ac); else logUpdate(ac);
 
     if (isMil(ac)) milCount++;
     if (!closest || ac.distKm < closest.distKm) closest = ac;
@@ -265,6 +321,7 @@ function update(list) {
       const t = state.trails.get(hex);
       if (t) { map.removeLayer(t.line); state.trails.delete(hex); }
       state.aircraft.delete(hex);
+      logExit(hex);
       if (state.selected === hex) closeSheet('detail');
     }
   }
@@ -278,6 +335,7 @@ function update(list) {
 
   if (state.selected && state.aircraft.has(state.selected)) renderDetail(state.selected, false);
   if (!document.getElementById('list').classList.contains('hidden')) renderList();
+  if (!document.getElementById('history').classList.contains('hidden')) renderHistory();
 }
 
 async function tick() {
@@ -367,7 +425,7 @@ function selectAircraft(hex) {
   const prev = state.selected;
   state.selected = hex;
   if (prev && state.aircraft.has(prev)) ensureMarker(state.aircraft.get(prev));
-  closeSheet('list'); closeSheet('settings');
+  closeSheet('list'); closeSheet('settings'); closeSheet('history');
   renderDetail(hex, true);
   openSheet('detail');
   const ac = state.aircraft.get(hex);
@@ -392,6 +450,7 @@ async function renderDetail(hex, full) {
       ${emg ? `<span class="badge emg">Emergencia ${ac.squawk || ''}</span>` : ''}
     </div>
     <div class="ac-type">${ac.desc || ac.t || 'Tipo desconocido'}${ac.year ? ` · ${ac.year}` : ''}${ac.ownOp ? ` · ${ac.ownOp}` : ''}</div>
+    <div id="acinfo-slot"></div>
     <div id="route-slot"></div>
     <div class="grid">
       <div class="cell"><div class="k">Altitud</div><div class="v">${fmtAlt(ac.alt_baro)}</div></div>
@@ -407,29 +466,80 @@ async function renderDetail(hex, full) {
 
   if (full) {
     loadPhoto(ac);
+    loadAcInfo(ac);
     loadRoute(ac);
   } else {
     const photo = state.photoCache.get(ac.hex);
     if (photo) document.getElementById('photo-slot').innerHTML = photo;
+    const info = state.infoCache.get(ac.hex);
+    if (info) document.getElementById('acinfo-slot').innerHTML = info;
     const route = state.routeCache.get((ac.flight || '').trim());
     if (route) document.getElementById('route-slot').innerHTML = route;
   }
 }
 
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// Info de aeronave de adsbdb (fabricante, operador, foto alternativa) — clave para militares
+async function acInfo(hex) {
+  if (state.acInfoCache.has(hex)) return state.acInfoCache.get(hex);
+  let a = null;
+  try { a = (await fetchJson(`https://api.adsbdb.com/v0/aircraft/${hex}`)).response?.aircraft || null; } catch {}
+  state.acInfoCache.set(hex, a);
+  return a;
+}
+
+function psPhotoHtml(p, ac) {
+  return `<img class="ac-photo" src="${p.thumbnail_large?.src || p.thumbnail?.src}" alt="Foto de ${ac.r || ac.hex}">
+    <div class="ac-photo-credit">📷 ${p.photographer || ''} · <a href="${p.link}" target="_blank" rel="noopener">planespotters.net</a></div>`;
+}
+
+// Foto con triple búsqueda: planespotters por hex → por matrícula → foto de adsbdb
 async function loadPhoto(ac) {
   const slot = () => document.getElementById('photo-slot');
   if (state.photoCache.has(ac.hex)) { if (slot()) slot().innerHTML = state.photoCache.get(ac.hex); return; }
+  let html = '';
   try {
-    const res = await fetch(`https://api.planespotters.net/pub/photos/hex/${ac.hex}`);
-    const data = await res.json();
-    const p = data.photos?.[0];
-    if (p) {
-      const html = `<img class="ac-photo" src="${p.thumbnail_large?.src || p.thumbnail?.src}" alt="Foto de ${ac.r || ac.hex}">
-        <div class="ac-photo-credit">📷 ${p.photographer || ''} · <a href="${p.link}" target="_blank" rel="noopener">planespotters.net</a></div>`;
-      state.photoCache.set(ac.hex, html);
-      if (state.selected === ac.hex && slot()) slot().innerHTML = html;
-    } else state.photoCache.set(ac.hex, '');
+    const p = (await fetchJson(`https://api.planespotters.net/pub/photos/hex/${ac.hex}`)).photos?.[0];
+    if (p) html = psPhotoHtml(p, ac);
   } catch {}
+  if (!html && ac.r) {
+    try {
+      const p = (await fetchJson(`https://api.planespotters.net/pub/photos/reg/${encodeURIComponent(ac.r)}`)).photos?.[0];
+      if (p) html = psPhotoHtml(p, ac);
+    } catch {}
+  }
+  if (!html) {
+    const a = await acInfo(ac.hex);
+    if (a?.url_photo) {
+      html = `<img class="ac-photo" src="${a.url_photo}" alt="Foto de ${ac.r || ac.hex}">
+        <div class="ac-photo-credit">📷 vía <a href="https://adsbdb.com" target="_blank" rel="noopener">adsbdb.com</a></div>`;
+    }
+  }
+  state.photoCache.set(ac.hex, html);
+  if (state.selected === ac.hex && slot()) slot().innerHTML = html;
+}
+
+// Línea extra con fabricante, modelo completo y operador registrado
+async function loadAcInfo(ac) {
+  const slot = () => document.getElementById('acinfo-slot');
+  if (state.infoCache.has(ac.hex)) { if (slot()) slot().innerHTML = state.infoCache.get(ac.hex); return; }
+  const a = await acInfo(ac.hex);
+  let html = '';
+  if (a) {
+    const bits = [];
+    const full = [a.manufacturer, a.type].filter(Boolean).join(' ');
+    if (full) bits.push(full);
+    if (a.registered_owner) bits.push(`${isMil(ac) ? '🛡️' : '🏢'} ${a.registered_owner}`);
+    if (a.registered_owner_country_name) bits.push(a.registered_owner_country_name);
+    if (bits.length) html = `<div class="ac-type">${bits.join(' · ')}</div>`;
+  }
+  state.infoCache.set(ac.hex, html);
+  if (state.selected === ac.hex && slot()) slot().innerHTML = html;
 }
 
 async function loadRoute(ac) {
@@ -481,6 +591,59 @@ function renderList() {
     row.addEventListener('click', () => selectAircraft(row.dataset.hex)));
 }
 
+// ---------- Historial (interfaz) ----------
+function hhmm(t) { return new Date(t).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }); }
+function dayLabel(t) {
+  const d = new Date(t), today = new Date();
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'Hoy';
+  if (d.toDateString() === yesterday.toDateString()) return 'Ayer';
+  return d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+function renderHistory() {
+  const el = document.getElementById('history-content');
+  let arr = [...zoneLog].sort((a, b) => b.tIn - a.tIn);
+  if (state.histFilter === 'mil') arr = arr.filter(e => e.mil);
+  if (state.histFilter === 'civ') arr = arr.filter(e => !e.mil);
+
+  if (!arr.length) {
+    el.innerHTML = '<p class="hint">Aún no hay registros con este filtro. En cuanto algo cruce la zona de 50 km, quedará apuntado aquí con su hora. 📋</p>';
+    return;
+  }
+
+  let html = '', lastDay = '';
+  for (const e of arr) {
+    const day = dayLabel(e.tIn);
+    if (day !== lastDay) { html += `<div class="day-head">${day}</div>`; lastDay = day; }
+    const active = logActive.get(e.hex) === e;
+    const range = active ? `${hhmm(e.tIn)} → <b class="inzone">en zona</b>` : `${hhmm(e.tIn)} → ${hhmm(e.tOut)}`;
+    html += `<div class="list-row hist-row ${active ? 'active' : ''}" data-hex="${active ? e.hex : ''}">
+      <div class="hist-dot" style="background:${e.emg ? '#ffb300' : e.mil ? '#ff5252' : '#4fc3f7'}"></div>
+      <div class="list-main">
+        <div class="list-cs">${e.cs} ${e.mil ? '🪖' : ''}${e.emg ? '🚨' : ''}</div>
+        <div class="list-sub">${[e.type, e.reg].filter(Boolean).join(' · ') || e.hex.toUpperCase()}</div>
+      </div>
+      <div class="list-right">
+        <div class="hist-time">${range}</div>
+        <div class="list-dist">mín. ${e.minDist} km</div>
+      </div>
+    </div>`;
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('.hist-row.active').forEach(row =>
+    row.addEventListener('click', () => { if (row.dataset.hex) selectAircraft(row.dataset.hex); }));
+}
+
+document.querySelectorAll('#history .list-filters .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('#history .list-filters .chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    state.histFilter = chip.dataset.hfilter;
+    renderHistory();
+  });
+});
+
 // ---------- Paneles ----------
 function openSheet(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeSheet(id) {
@@ -495,10 +658,12 @@ function closeSheet(id) {
 document.getElementById('detail-close').onclick = () => closeSheet('detail');
 document.getElementById('list-close').onclick = () => closeSheet('list');
 document.getElementById('settings-close').onclick = () => closeSheet('settings');
-document.getElementById('btn-list').onclick = () => { closeSheet('detail'); closeSheet('settings'); renderList(); openSheet('list'); };
-document.getElementById('btn-settings').onclick = () => { closeSheet('detail'); closeSheet('list'); openSheet('settings'); };
+document.getElementById('history-close').onclick = () => closeSheet('history');
+document.getElementById('btn-list').onclick = () => { closeSheet('detail'); closeSheet('settings'); closeSheet('history'); renderList(); openSheet('list'); };
+document.getElementById('btn-settings').onclick = () => { closeSheet('detail'); closeSheet('list'); closeSheet('history'); openSheet('settings'); };
+document.getElementById('btn-history').onclick = () => { closeSheet('detail'); closeSheet('list'); closeSheet('settings'); renderHistory(); openSheet('history'); };
 
-document.querySelectorAll('.list-filters .chip').forEach(chip => {
+document.querySelectorAll('#list .list-filters .chip').forEach(chip => {
   chip.addEventListener('click', () => {
     document.querySelectorAll('.list-filters .chip').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');

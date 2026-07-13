@@ -31,6 +31,9 @@
     <div class="topbar-right">
       <span id="status-dot" class="dot" title="Estado de la conexión"></span>
       <span id="ac-count">—</span>
+      <button id="btn-history" class="iconbtn" title="Historial de la zona" aria-label="Historial de la zona">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+      </button>
       <button id="btn-list" class="iconbtn" title="Lista de vuelos" aria-label="Lista de vuelos">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
       </button>
@@ -70,6 +73,20 @@
       <button class="chip" data-filter="emg">Emergencia</button>
     </div>
     <div id="list-content"></div>
+  </div>
+
+  <!-- Historial de la zona -->
+  <div id="history" class="sheet hidden">
+    <div class="sheet-handle"></div>
+    <button class="sheet-close" id="history-close" aria-label="Cerrar">✕</button>
+    <h2>🕐 Historial de la zona</h2>
+    <p class="hint" style="margin-top:-4px">Todo lo que ha entrado en los 50 km de LELN. Se guarda 3 días en este dispositivo.</p>
+    <div class="list-filters">
+      <button class="chip active" data-hfilter="all">Todos</button>
+      <button class="chip" data-hfilter="mil">🪖 Militares</button>
+      <button class="chip" data-hfilter="civ">Civiles</button>
+    </div>
+    <div id="history-content"></div>
   </div>
 
   <!-- Ajustes -->
