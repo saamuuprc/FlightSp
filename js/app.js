@@ -2,7 +2,12 @@
 'use strict';
 
 // ---------- Configuración ----------
-const AIRPORT = { lat: 42.5890, lon: -5.6556, code: 'LELN', name: 'Aeropuerto de León' };
+const AIRPORT = { lat: 42.5890, lon: -5.6556, code: 'LELN', name: 'Aeropuerto de León', elevFt: 3006 };
+// Altura sobre el terreno de León (las altitudes ADS-B son sobre el nivel del mar,
+// y LELN está a 916 m: sin esta corrección casi nada contaría como "bajo")
+function aglFt(ac) {
+  return typeof ac.alt_baro === 'number' ? ac.alt_baro - AIRPORT.elevFt : null;
+}
 const NM_TO_KM = 1.852;
 // Radio de la zona de vigilancia: configurable en Ajustes (settings.zoneKm)
 function zoneKm() { return settings.zoneKm; }
@@ -78,7 +83,9 @@ setInterval(() => { if (logDirty) saveLog(); }, 30000);
 
 // Un avión en tierra o muy bajo junto a LELN = aterrizaje/despegue presenciado
 function nearRunway(ac) {
-  return ac.distKm < 6 && (ac.alt_baro === 'ground' || (typeof ac.alt_baro === 'number' && ac.alt_baro < 3500));
+  if (ac.alt_baro === 'ground' && ac.distKm < 10) return true;
+  const agl = aglFt(ac);
+  return ac.distKm < 10 && agl != null && agl < 3500;
 }
 
 function logEnter(ac) {
@@ -784,12 +791,18 @@ function renderHistDetail(e) {
 // ---------- Panel del aeropuerto (LELN) ----------
 // Clasifica cada avión en zona respecto al aeropuerto usando su física real
 function aptStatus(ac) {
-  if (ac.alt_baro === 'ground' && ac.distKm < 6) return 'ground';
+  if (ac.alt_baro === 'ground' && ac.distKm < 10) return 'ground';
   const rd = state.routeDataCache.get((ac.flight || '').trim());
   if (rd?.dCode === 'LEN') return 'arriving';
   if (rd?.oCode === 'LEN') return 'departing';
-  if (typeof ac.alt_baro === 'number' && ac.alt_baro < 13000 && ac.track != null && ac.lat != null) {
-    const vr = ac.baro_rate ?? ac.geom_rate ?? 0;
+  const agl = aglFt(ac);
+  const vr = ac.baro_rate ?? ac.geom_rate ?? 0;
+  // Bajo y cerca del aeropuerto: es tráfico de LELN sí o sí (circuito, final, despegue)
+  if (agl != null && agl < 5500 && ac.distKm < 18) {
+    return vr > 400 ? 'departing' : 'arriving';
+  }
+  // Más lejos: por geometría (altitudes sobre el terreno, no sobre el mar)
+  if (agl != null && agl < 10000 && ac.track != null && ac.lat != null) {
     const toApt = angDiff(ac.track, bearingDeg(ac.lat, ac.lon, AIRPORT.lat, AIRPORT.lon));
     const fromApt = angDiff(ac.track, bearingDeg(AIRPORT.lat, AIRPORT.lon, ac.lat, ac.lon));
     if (toApt < 50 && vr < 200) return 'arriving';    // apunta al aeropuerto y no está subiendo
@@ -833,6 +846,7 @@ function renderAirportPanel() {
     <h3>🛫 Saliendo / en tierra</h3>
     ${departing.length ? departing.map(a => aptRow(a, aptStatus(a) === 'ground' ? 'en tierra' : 'despegando')).join('') : '<p class="hint">Ninguna salida en curso detectada.</p>'}
     <h3>🕐 Actividad reciente en el aeropuerto</h3>
+    <p class="hint" style="margin-top:-2px">⚠️ El radar solo ve y registra mientras la app está abierta en algún dispositivo. Además, a baja cota la cobertura depende de los receptores voluntarios de la zona.</p>
     ${recent.length ? recent.map(e => `
       <div class="list-row hist-row" data-key="${e.tIn}:${e.hex}">
         <div class="hist-dot" style="background:${e.mil ? '#ff5252' : '#4fc3f7'}"></div>
