@@ -654,6 +654,20 @@ async function loadAcInfo(ac) {
   if (state.selected === ac.hex && slot()) slot().innerHTML = html;
 }
 
+// La BD de rutas trae el municipio físico del aeropuerto, que a veces es una
+// pedanía (OVD → «Ranon»). Tabla con los nombres que usa todo el mundo.
+const APT_NAMES = {
+  OVD: 'Oviedo · Asturias', SDR: 'Santander', BIO: 'Bilbao', VLC: 'Valencia', ALC: 'Alicante',
+  TFS: 'Tenerife Sur', TFN: 'Tenerife Norte', LPA: 'Gran Canaria', ACE: 'Lanzarote',
+  FUE: 'Fuerteventura', SPC: 'La Palma', GMZ: 'La Gomera', VDE: 'El Hierro',
+  EAS: 'San Sebastián', VIT: 'Vitoria', PNA: 'Pamplona', RJL: 'Logroño', SLM: 'Salamanca',
+  BJZ: 'Badajoz', GRX: 'Granada', XRY: 'Jerez', MAH: 'Menorca', PMI: 'Palma de Mallorca',
+  BCN: 'Barcelona', MAD: 'Madrid', LEN: 'León',
+};
+function aptLabel(a) {
+  return APT_NAMES[a.iata_code] || a.municipality || a.name || '';
+}
+
 async function loadRoute(ac) {
   const cs = (ac.flight || '').trim();
   if (!cs) return;
@@ -668,9 +682,9 @@ async function loadRoute(ac) {
       // Solo mostramos la ruta si la posición y el rumbo reales del avión la avalan
       if (routePlausible(ac, fr.origin, fr.destination)) {
         html = `<div class="route">
-          <div class="apt"><div class="apt-code">${fr.origin.iata_code || fr.origin.icao_code}</div><div class="apt-name">${fr.origin.municipality || fr.origin.name}</div></div>
+          <div class="apt"><div class="apt-code">${fr.origin.iata_code || fr.origin.icao_code}</div><div class="apt-name">${aptLabel(fr.origin)}</div></div>
           <div class="arrow">✈ ——→</div>
-          <div class="apt"><div class="apt-code">${fr.destination.iata_code || fr.destination.icao_code}</div><div class="apt-name">${fr.destination.municipality || fr.destination.name}</div></div>
+          <div class="apt"><div class="apt-code">${fr.destination.iata_code || fr.destination.icao_code}</div><div class="apt-name">${aptLabel(fr.destination)}</div></div>
         </div>
         <div class="route-check">✓ Ruta contrastada con la posición y rumbo reales del vuelo</div>
         ${fr.airline ? `<div class="ac-type">🏢 ${fr.airline.name}${fr.airline.country ? ' · ' + fr.airline.country : ''}</div>` : ''}`;
