@@ -825,6 +825,41 @@ function aptRow(ac, extra) {
   </div>`;
 }
 
+// ---------- Vuelos previstos (horario de temporada + cruce con el radar) ----------
+// Devuelve los vuelos del horario para hoy y mañana con su estado según el radar
+function scheduledFlights() {
+  const out = [];
+  const now = Date.now();
+  const WINDOW = 100 * 60 * 1000; // ±100 min para casar horario con radar
+  for (const dayOffset of [0, 1]) {
+    const base = new Date();
+    base.setDate(base.getDate() + dayOffset);
+    const dow = base.getDay();
+    for (const f of (LELN_SCHEDULE.flights || [])) {
+      if (!f.days.includes(dow)) continue;
+      const [h, m] = f.time.split(':').map(Number);
+      const t = new Date(base.getFullYear(), base.getMonth(), base.getDate(), h, m).getTime();
+      if (t < now - 3 * 3600 * 1000 && dayOffset === 0) continue; // pasados hace >3h hoy: fuera
+      if (dayOffset === 1 && out.length >= 8) break;
+      // Estado por defecto
+      let status = 'previsto', hex = null, key = null;
+      // ¿Hay un ANE en el radar ahora dentro de la ventana?
+      if (Math.abs(now - t) < WINDOW) {
+        const live = [...state.aircraft.values()].find(a => (a.flight || '').trim().startsWith('ANE'));
+        if (live) { status = 'radar'; hex = live.hex; }
+      }
+      // ¿Lo vio el radar (historial) en la ventana?
+      if (status === 'previsto' && t < now) {
+        const seen = zoneLog.find(e => e.cs.startsWith('ANE') && Math.abs(e.tLast - t) < WINDOW);
+        if (seen) { status = 'visto'; key = `${seen.tIn}:${seen.hex}`; hex = seen.hex; }
+        else if (now - t > 45 * 60 * 1000) status = 'sinseñal';
+      }
+      out.push({ ...f, t, dayOffset, status, hex, key });
+    }
+  }
+  return out.sort((a, b) => a.t - b.t).slice(0, 10);
+}
+
 function renderAirportPanel() {
   state.selected = null;
   state.aptPanel = true;
@@ -840,7 +875,31 @@ function renderAirportPanel() {
       <span class="ac-callsign">LELN</span>
       <span class="ac-reg">Aeropuerto de León</span>
     </div>
-    <div class="ac-type">📡 Detectado en vivo por el radar · Los horarios programados oficiales: <a href="https://www.aena.es/es/leon.html" target="_blank" rel="noopener" style="color:var(--accent)">panel de AENA ↗</a></div>
+    <div class="ac-type">📡 Detectado en vivo por el radar · Horarios oficiales del día: <a href="https://www.aena.es/es/leon.html" target="_blank" rel="noopener" style="color:var(--accent)">panel de AENA ↗</a></div>
+    <h3>🗓 Vuelos previstos (horario de temporada)</h3>
+    ${(() => {
+      const sched = scheduledFlights();
+      if (!sched.length) return '<p class="hint">No hay vuelos comerciales previstos en el horario de temporada para hoy/mañana.</p>';
+      const STATUS = {
+        previsto: '<span class="sched-tag">previsto</span>',
+        radar: '<span class="sched-tag live">🟢 EN EL RADAR</span>',
+        visto: '<span class="sched-tag ok">✓ visto por el radar</span>',
+        sinseñal: '<span class="sched-tag off">sin señal*</span>',
+      };
+      return sched.map(f => `
+        <div class="list-row sched-row ${f.hex ? 'linked' : ''}" ${f.hex ? `data-shex="${f.hex}" data-skey="${f.key || ''}"` : ''}>
+          <div class="list-plane" style="font-size:16px">${f.type === 'arr' ? '🛬' : '🛫'}</div>
+          <div class="list-main">
+            <div class="list-cs">${f.type === 'arr' ? f.apt + ' → LELN' : 'LELN → ' + f.apt}</div>
+            <div class="list-sub">${f.city} · ${f.cs}${f.variable ? ' · según día' : ''}</div>
+          </div>
+          <div class="list-right">
+            <div class="list-alt">${f.dayOffset ? 'mañana ' : ''}${f.time}</div>
+            <div class="list-dist">${STATUS[f.status]}</div>
+          </div>
+        </div>`).join('')
+        + `<p class="hint">${LELN_SCHEDULE.weekly} Horario orientativo (actualizado ${LELN_SCHEDULE.updated}) — el oficial del día, en AENA. *«Sin señal»: LELN tiene poca cobertura ADS-B a baja cota; amplía la zona en Ajustes a 150+ km para cazarlos en descenso.</p>`;
+    })()}
     <h3>🛬 Llegando ahora</h3>
     ${arriving.length ? arriving.map(a => aptRow(a, 'en aproximación')).join('') : '<p class="hint">Nada aproximándose a LELN ahora mismo.</p>'}
     <h3>🛫 Saliendo / en tierra</h3>
@@ -862,6 +921,14 @@ function renderAirportPanel() {
 
   el.querySelectorAll('.list-row[data-hex]').forEach(row =>
     row.addEventListener('click', () => selectAircraft(row.dataset.hex)));
+  el.querySelectorAll('.sched-row.linked').forEach(row =>
+    row.addEventListener('click', () => {
+      const hex = row.dataset.shex;
+      if (state.aircraft.has(hex)) return selectAircraft(hex);
+      const [tIn, h] = (row.dataset.skey || '').split(':');
+      const e = zoneLog.find(x => x.tIn === Number(tIn) && x.hex === h);
+      if (e) renderHistDetail(e);
+    }));
   el.querySelectorAll('.hist-row[data-key]').forEach(row =>
     row.addEventListener('click', () => {
       const [tIn, hex] = row.dataset.key.split(':');

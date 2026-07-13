@@ -208,6 +208,18 @@ html, body {
 .hist-time { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .inzone { color: var(--ok); }
 
+/* ---------- Vuelos previstos ---------- */
+.sched-row { cursor: default; }
+.sched-row.linked { cursor: pointer; }
+.sched-tag {
+  font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 10px;
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+  text-transform: uppercase; letter-spacing: .3px; white-space: nowrap;
+}
+.sched-tag.live { background: rgba(76,175,80,.15); border-color: var(--ok); color: var(--ok); animation: blink 1.4s infinite; }
+.sched-tag.ok { border-color: var(--ok); color: var(--ok); }
+.sched-tag.off { border-color: var(--border); color: var(--muted); opacity: .8; }
+
 /* ---------- Ajustes ---------- */
 .setting { margin-bottom: 14px; }
 .setting label { font-size: 13px; display: block; margin-bottom: 6px; color: var(--text); }
