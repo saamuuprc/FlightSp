@@ -347,6 +347,7 @@ function update(list) {
   document.getElementById('stat-closest').textContent = closest ? `${callsignOf(closest)} · ${closest.distKm.toFixed(1)} km` : '—';
   document.getElementById('stat-fastest').textContent = fastest ? `${callsignOf(fastest)} · ${Math.round(fastest.gs)} kt` : '—';
   document.getElementById('stat-highest').textContent = highest ? `${callsignOf(highest)} · ${highest.alt_baro.toLocaleString('es')} ft` : '—';
+  state.statTargets = { closest: closest?.hex, fastest: fastest?.hex, highest: highest?.hex };
 
   if (state.selected && state.aircraft.has(state.selected)) renderDetail(state.selected, false);
   if (!document.getElementById('list').classList.contains('hidden')) renderList();
@@ -734,6 +735,25 @@ document.getElementById('history-close').onclick = () => closeSheet('history');
 document.getElementById('btn-list').onclick = () => { closeSheet('detail'); closeSheet('settings'); closeSheet('history'); renderList(); openSheet('list'); };
 document.getElementById('btn-settings').onclick = () => { closeSheet('detail'); closeSheet('list'); closeSheet('history'); openSheet('settings'); };
 document.getElementById('btn-history').onclick = () => { closeSheet('detail'); closeSheet('list'); closeSheet('settings'); renderHistory(); openSheet('history'); };
+
+// Estadísticas clicables: tocar "Más cercano/rápido/alto" abre ese avión
+for (const [statId, key] of [['stat-closest', 'closest'], ['stat-fastest', 'fastest'], ['stat-highest', 'highest']]) {
+  document.getElementById(statId).parentElement.addEventListener('click', () => {
+    const hex = state.statTargets?.[key];
+    if (hex && state.aircraft.has(hex)) selectAircraft(hex);
+  });
+}
+// "Militares" abre la lista ya filtrada a militares
+document.getElementById('stat-mil').parentElement.addEventListener('click', () => {
+  closeSheet('detail'); closeSheet('settings'); closeSheet('history');
+  document.querySelectorAll('#list .list-filters .chip').forEach(c =>
+    c.classList.toggle('active', c.dataset.filter === 'mil'));
+  state.listFilter = 'mil';
+  renderList();
+  openSheet('list');
+});
+// El contador de aviones de arriba abre la lista completa
+document.getElementById('ac-count').addEventListener('click', () => document.getElementById('btn-list').click());
 
 document.querySelectorAll('#list .list-filters .chip').forEach(chip => {
   chip.addEventListener('click', () => {
