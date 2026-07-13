@@ -1,0 +1,213 @@
+:root {
+  --bg: #0b1220;
+  --panel: #101a2e;
+  --panel-2: #16233c;
+  --border: #23324f;
+  --text: #e8eefb;
+  --muted: #8fa3c4;
+  --accent: #4fc3f7;
+  --mil: #ff5252;
+  --emg: #ffb300;
+  --ok: #4caf50;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overscroll-behavior: none;
+}
+
+#app { height: 100%; display: flex; flex-direction: column; position: relative; }
+
+/* ---------- Barra superior ---------- */
+#topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: calc(8px + var(--safe-top)) 12px 8px;
+  background: linear-gradient(180deg, #0b1220 0%, #0e1730 100%);
+  border-bottom: 1px solid var(--border);
+  z-index: 1000;
+}
+.brand { display: flex; align-items: center; gap: 8px; font-size: 16px; letter-spacing: .5px; }
+.brand b { color: var(--accent); font-weight: 800; }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+#ac-count { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #666; display: inline-block; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.dot.err { background: var(--mil); box-shadow: 0 0 6px var(--mil); }
+.iconbtn {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 10px; width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.iconbtn:active { background: var(--border); }
+
+/* ---------- Mapa ---------- */
+#map { flex: 1; background: #0a0f1c; z-index: 1; }
+.leaflet-container { font: inherit; }
+.leaflet-control-attribution { background: rgba(11,18,32,.8) !important; color: var(--muted) !important; font-size: 9px !important; }
+.leaflet-control-attribution a { color: var(--accent) !important; }
+.leaflet-control-zoom a { background: var(--panel-2) !important; color: var(--text) !important; border-color: var(--border) !important; }
+
+.plane-icon { will-change: transform; }
+.plane-icon svg { filter: drop-shadow(0 1px 2px rgba(0,0,0,.8)); transition: transform .8s linear; display: block; }
+.pw { position: relative; }
+.pw.sel svg { filter: drop-shadow(0 0 7px #4fc3f7) drop-shadow(0 1px 2px rgba(0,0,0,.8)); }
+.pw.emg svg { animation: emgpulse 1s infinite; }
+@keyframes emgpulse { 50% { opacity: .35; } }
+.plane-label {
+  position: absolute; top: 26px; left: 50%; transform: translateX(-50%);
+  background: rgba(11,18,32,.85); border: 1px solid var(--border); color: var(--text);
+  border-radius: 4px; padding: 0 4px; font-size: 10px; font-weight: 600;
+  white-space: nowrap; pointer-events: none;
+}
+
+/* Baliza del aeropuerto */
+.apt-icon { pointer-events: none; }
+.apt-core {
+  position: absolute; top: 50%; left: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px;
+  border-radius: 50%; background: #4fc3f7; box-shadow: 0 0 8px #4fc3f7;
+}
+.apt-pulse {
+  position: absolute; top: 50%; left: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px;
+  border-radius: 50%; border: 2px solid #4fc3f7;
+  animation: aptpulse 2.4s ease-out infinite;
+}
+@keyframes aptpulse {
+  0% { transform: scale(1); opacity: .9; }
+  100% { transform: scale(6); opacity: 0; }
+}
+.apt-tag {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  color: #4fc3f7; font-size: 9px; font-weight: 800; letter-spacing: 1px;
+  text-shadow: 0 1px 3px rgba(0,0,0,.9);
+}
+.ring-label {
+  color: rgba(79,195,247,.7); font-size: 9px; font-weight: 700; letter-spacing: .5px;
+  text-align: center; text-shadow: 0 1px 3px rgba(0,0,0,.9); pointer-events: none;
+}
+
+/* ---------- Estadísticas ---------- */
+#statsbar {
+  display: flex; gap: 6px; padding: 6px 8px calc(6px + var(--safe-bottom));
+  background: var(--bg); border-top: 1px solid var(--border); z-index: 1000;
+}
+.stat {
+  flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 5px 8px; display: flex; flex-direction: column; min-width: 0;
+}
+.stat-label { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.stat-value { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Paneles deslizantes ---------- */
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; max-height: 78%;
+  background: var(--panel); border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; z-index: 2000;
+  padding: 10px 16px calc(20px + var(--safe-bottom));
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  box-shadow: 0 -8px 30px rgba(0,0,0,.5);
+  transition: transform .25s ease, opacity .25s ease;
+}
+.sheet.hidden { transform: translateY(105%); opacity: 0; pointer-events: none; }
+.sheet-handle { width: 40px; height: 4px; border-radius: 2px; background: var(--border); margin: 2px auto 10px; }
+.sheet-close {
+  position: absolute; top: 12px; right: 12px; background: var(--panel-2);
+  border: 1px solid var(--border); color: var(--muted); border-radius: 50%;
+  width: 30px; height: 30px; font-size: 13px; cursor: pointer; z-index: 10;
+}
+.sheet h2 { font-size: 17px; margin-bottom: 10px; }
+.sheet h3 { font-size: 13px; margin: 18px 0 8px; color: var(--accent); text-transform: uppercase; letter-spacing: .5px; }
+
+/* ---------- Detalle de aeronave ---------- */
+.ac-photo { width: 100%; border-radius: 12px; margin-bottom: 4px; display: block; background: var(--panel-2); min-height: 120px; object-fit: cover; max-height: 210px; }
+.ac-photo-credit { font-size: 10px; color: var(--muted); margin-bottom: 10px; }
+.ac-photo-credit a { color: var(--accent); text-decoration: none; }
+.ac-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 2px; }
+.ac-callsign { font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+.ac-reg { font-size: 14px; color: var(--muted); font-weight: 600; }
+.badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px; text-transform: uppercase; }
+.badge.mil { background: rgba(255,82,82,.15); color: var(--mil); border: 1px solid var(--mil); }
+.badge.emg { background: rgba(255,179,0,.15); color: var(--emg); border: 1px solid var(--emg); animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .4; } }
+.ac-type { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+
+.route {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 14px; margin-bottom: 12px;
+}
+.route .apt { text-align: center; min-width: 0; }
+.route .apt-code { font-size: 20px; font-weight: 800; color: var(--accent); }
+.route .apt-name { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
+.route .arrow { color: var(--muted); flex-shrink: 0; }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.cell { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+.cell .k { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.cell .v { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cell .u { font-size: 10px; color: var(--muted); font-weight: 400; }
+
+/* ---------- Lista ---------- */
+.list-filters { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.chip {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+  border-radius: 20px; padding: 5px 12px; font-size: 12px; cursor: pointer;
+}
+.chip.active { background: rgba(79,195,247,.15); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.list-row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 4px;
+  border-bottom: 1px solid var(--border); cursor: pointer;
+}
+.list-row:active { background: var(--panel-2); }
+.list-plane { flex-shrink: 0; }
+.list-main { flex: 1; min-width: 0; }
+.list-cs { font-weight: 700; font-size: 14px; }
+.list-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list-right { text-align: right; flex-shrink: 0; }
+.list-alt { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.list-dist { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- Historial ---------- */
+.day-head {
+  font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--accent); margin: 14px 0 4px; padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.day-head:first-child { margin-top: 4px; }
+.hist-row { cursor: default; }
+.hist-row.active { cursor: pointer; }
+.hist-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.hist-row.active .hist-dot { box-shadow: 0 0 6px currentColor; animation: emgpulse 1.6s infinite; }
+.hist-time { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.inzone { color: var(--ok); }
+
+/* ---------- Ajustes ---------- */
+.setting { margin-bottom: 14px; }
+.setting label { font-size: 13px; display: block; margin-bottom: 6px; color: var(--text); }
+.setting.row { display: flex; align-items: center; justify-content: space-between; }
+.setting.row label { margin: 0; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+.hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; margin: 8px 0; }
+.credit { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 16px; }
+
+/* ---------- Toasts ---------- */
+#toasts {
+  position: absolute; top: calc(58px + var(--safe-top)); left: 10px; right: 10px;
+  z-index: 3000; display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast {
+  background: var(--panel-2); border: 1px solid var(--accent); border-radius: 12px;
+  padding: 10px 14px; font-size: 13px; box-shadow: 0 4px 20px rgba(0,0,0,.5);
+  animation: slidein .3s ease; pointer-events: auto; cursor: pointer;
+}
+.toast.mil { border-color: var(--mil); }
+.toast.emg { border-color: var(--emg); }
+@keyframes slidein { from { transform: translateY(-20px); opacity: 0; } }
