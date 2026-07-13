@@ -156,6 +156,43 @@ function altColor(alt) {
   return `hsl(${hue}, 90%, 60%)`;
 }
 
+function bearingDeg(la1, lo1, la2, lo2) {
+  const rad = Math.PI / 180;
+  const y = Math.sin((lo2 - lo1) * rad) * Math.cos(la2 * rad);
+  const x = Math.cos(la1 * rad) * Math.sin(la2 * rad) - Math.sin(la1 * rad) * Math.cos(la2 * rad) * Math.cos((lo2 - lo1) * rad);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+function angDiff(a, b) { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
+// Distancia del avión a la línea ortodrómica origen→destino
+function crossTrackKm(lat, lon, la1, lo1, la2, lo2) {
+  const R = 6371, rad = Math.PI / 180;
+  const d13 = haversineKm(la1, lo1, lat, lon) / R;
+  const b13 = bearingDeg(la1, lo1, lat, lon) * rad;
+  const b12 = bearingDeg(la1, lo1, la2, lo2) * rad;
+  return Math.abs(Math.asin(Math.sin(d13) * Math.sin(b13 - b12)) * R);
+}
+
+// Las bases de datos de rutas asocian ruta a indicativo y a menudo están
+// desfasadas. Solo damos por buena una ruta si la física del vuelo la avala.
+function routePlausible(ac, o, d) {
+  const oLat = o.latitude, oLon = o.longitude, dLat = d.latitude, dLon = d.longitude;
+  if (oLat == null || dLat == null) return false;        // sin coordenadas no podemos verificar
+  if (o.icao_code === d.icao_code) return false;
+  const pLat = ac.lat ?? AIRPORT.lat, pLon = ac.lon ?? AIRPORT.lon;
+  // 1) Corredor: el avión debe estar razonablemente cerca de la línea origen→destino
+  // (450 km de margen: las aerovías y la meteo desvían bastante de la ortodrómica)
+  if (crossTrackKm(pLat, pLon, oLat, oLon, dLat, dLon) > 450) return false;
+  // …y entre ambos extremos, no más allá
+  const dOD = haversineKm(oLat, oLon, dLat, dLon);
+  if (haversineKm(pLat, pLon, oLat, oLon) > dOD + 150) return false;
+  if (haversineKm(pLat, pLon, dLat, dLon) > dOD + 150) return false;
+  // 2) Dirección: en crucero, el rumbo debe apuntar hacia el destino
+  if (ac.track != null && (ac.gs ?? 0) > 80 && ac.alt_baro !== 'ground') {
+    if (angDiff(ac.track, bearingDeg(pLat, pLon, dLat, dLon)) > 70) return false;
+  }
+  return true;
+}
+
 function fmtAlt(a) { return a === 'ground' ? 'En tierra' : a != null ? `${a.toLocaleString('es')} ft` : '—'; }
 function fmtNum(v, dec = 0) { return v != null ? Number(v).toFixed(dec) : '—'; }
 
@@ -581,21 +618,34 @@ async function loadRoute(ac) {
   if (!cs) return;
   const slot = () => document.getElementById('route-slot');
   if (state.routeCache.has(cs)) { if (slot()) slot().innerHTML = state.routeCache.get(cs); return; }
+  let html = '';
+  let hadRoute = false;
   try {
-    const res = await fetch(`https://api.adsbdb.com/v0/callsign/${cs}`);
-    const data = await res.json();
-    const fr = data.response?.flightroute;
+    const fr = (await fetchJson(`https://api.adsbdb.com/v0/callsign/${cs}`)).response?.flightroute;
     if (fr?.origin && fr?.destination) {
-      const html = `<div class="route">
-        <div class="apt"><div class="apt-code">${fr.origin.iata_code || fr.origin.icao_code}</div><div class="apt-name">${fr.origin.municipality || fr.origin.name}</div></div>
-        <div class="arrow">✈ ——→</div>
-        <div class="apt"><div class="apt-code">${fr.destination.iata_code || fr.destination.icao_code}</div><div class="apt-name">${fr.destination.municipality || fr.destination.name}</div></div>
-      </div>
-      ${fr.airline ? `<div class="ac-type">🏢 ${fr.airline.name}${fr.airline.country ? ' · ' + fr.airline.country : ''}</div>` : ''}`;
-      state.routeCache.set(cs, html);
-      if (state.selected === ac.hex && slot()) slot().innerHTML = html;
-    } else state.routeCache.set(cs, '');
+      hadRoute = true;
+      // Solo mostramos la ruta si la posición y el rumbo reales del avión la avalan
+      if (routePlausible(ac, fr.origin, fr.destination)) {
+        html = `<div class="route">
+          <div class="apt"><div class="apt-code">${fr.origin.iata_code || fr.origin.icao_code}</div><div class="apt-name">${fr.origin.municipality || fr.origin.name}</div></div>
+          <div class="arrow">✈ ——→</div>
+          <div class="apt"><div class="apt-code">${fr.destination.iata_code || fr.destination.icao_code}</div><div class="apt-name">${fr.destination.municipality || fr.destination.name}</div></div>
+        </div>
+        <div class="route-check">✓ Ruta contrastada con la posición y rumbo reales del vuelo</div>
+        ${fr.airline ? `<div class="ac-type">🏢 ${fr.airline.name}${fr.airline.country ? ' · ' + fr.airline.country : ''}</div>` : ''}`;
+      }
+    }
   } catch {}
+  if (!html) {
+    // Sin ruta, o la ruta registrada no cuadra con el vuelo real: ser honestos
+    const reason = hadRoute
+      ? 'La ruta registrada para este indicativo no cuadra con la posición y rumbo reales del avión (bases de datos desfasadas).'
+      : 'No hay ruta registrada para este indicativo.';
+    html = `<div class="route-unknown">🧭 <b>Ruta no confirmada.</b> ${reason}
+      <a href="https://es.flightaware.com/live/flight/${encodeURIComponent(cs)}" target="_blank" rel="noopener">🔍 Ver ruta real en FlightAware</a></div>`;
+  }
+  state.routeCache.set(cs, html);
+  if (state.selected === ac.hex && slot()) slot().innerHTML = html;
 }
 
 // ---------- Lista ----------

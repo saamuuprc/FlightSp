@@ -156,6 +156,12 @@ html, body {
 .route .apt-code { font-size: 20px; font-weight: 800; color: var(--accent); }
 .route .apt-name { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
 .route .arrow { color: var(--muted); flex-shrink: 0; }
+.route-check { font-size: 10.5px; color: var(--ok); margin: -6px 0 10px; }
+.route-unknown {
+  background: var(--panel-2); border: 1px dashed var(--border); border-radius: 12px;
+  padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: var(--muted); line-height: 1.5;
+}
+.route-unknown a { display: inline-block; margin-top: 4px; color: var(--accent); text-decoration: none; font-weight: 600; }
 
 .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .cell { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
