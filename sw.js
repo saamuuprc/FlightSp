@@ -1,5 +1,5 @@
 /* FlightSpy — service worker: cachea la app para abrir al instante; los datos van siempre por red */
-const CACHE = 'flightspy-v10';
+const CACHE = 'flightspy-v11';
 const SHELL = [
   './',
   './index.html',
@@ -13,7 +13,13 @@ const SHELL = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache:'reload' salta el caché HTTP del navegador: sin esto, una versión nueva
+  // del SW podría congelar archivos viejos servidos por el caché de GitHub Pages
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', e => {
