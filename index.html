@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>FlightSpy León</title>
+<meta name="description" content="Radar de vuelos en tiempo real alrededor de León. Para frikis de los aviones.">
+<meta name="theme-color" content="#0b1220">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FlightSpy">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Barra superior -->
+  <header id="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#4fc3f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>
+      </svg>
+      <span>FlightSpy <b>LELN</b></span>
+    </div>
+    <div class="topbar-right">
+      <span id="status-dot" class="dot" title="Estado de la conexión"></span>
+      <span id="ac-count">—</span>
+      <button id="btn-list" class="iconbtn" title="Lista de vuelos" aria-label="Lista de vuelos">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
+      </button>
+      <button id="btn-settings" class="iconbtn" title="Ajustes" aria-label="Ajustes">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Mapa -->
+  <div id="map"></div>
+
+  <!-- Barra de estadísticas -->
+  <div id="statsbar">
+    <div class="stat"><span class="stat-label">Más cercano</span><span class="stat-value" id="stat-closest">—</span></div>
+    <div class="stat"><span class="stat-label">Más rápido</span><span class="stat-value" id="stat-fastest">—</span></div>
+    <div class="stat"><span class="stat-label">Más alto</span><span class="stat-value" id="stat-highest">—</span></div>
+    <div class="stat"><span class="stat-label">Militares</span><span class="stat-value" id="stat-mil">0</span></div>
+  </div>
+
+  <!-- Panel de detalle de aeronave -->
+  <div id="detail" class="sheet hidden">
+    <div class="sheet-handle"></div>
+    <button class="sheet-close" id="detail-close" aria-label="Cerrar">✕</button>
+    <div id="detail-content"></div>
+  </div>
+
+  <!-- Lista de vuelos -->
+  <div id="list" class="sheet hidden">
+    <div class="sheet-handle"></div>
+    <button class="sheet-close" id="list-close" aria-label="Cerrar">✕</button>
+    <h2>Vuelos en la zona</h2>
+    <div class="list-filters">
+      <button class="chip active" data-filter="all">Todos</button>
+      <button class="chip" data-filter="mil">Militares</button>
+      <button class="chip" data-filter="low">Bajos &lt;10 000 ft</button>
+      <button class="chip" data-filter="emg">Emergencia</button>
+    </div>
+    <div id="list-content"></div>
+  </div>
+
+  <!-- Ajustes -->
+  <div id="settings" class="sheet hidden">
+    <div class="sheet-handle"></div>
+    <button class="sheet-close" id="settings-close" aria-label="Cerrar">✕</button>
+    <h2>Ajustes</h2>
+
+    <p class="hint">📍 Zona de vigilancia: <b>50 km alrededor del Aeropuerto de León (LELN)</b>. Todo lo que vuele ahí dentro —civil o militar— aparece en el radar.</p>
+
+    <div class="setting">
+      <label for="set-interval">Actualización cada <b id="interval-val">6</b> s</label>
+      <input type="range" id="set-interval" min="3" max="30" step="1" value="6">
+    </div>
+
+    <h3>🔔 Alertas y notificaciones</h3>
+    <div class="setting row">
+      <label for="alert-enabled">Activar notificaciones</label>
+      <input type="checkbox" id="alert-enabled">
+    </div>
+    <div class="setting row">
+      <label for="alert-mil">Avión militar detectado</label>
+      <input type="checkbox" id="alert-mil" checked>
+    </div>
+    <div class="setting row">
+      <label for="alert-emg">Emergencia (7500/7600/7700)</label>
+      <input type="checkbox" id="alert-emg" checked>
+    </div>
+    <div class="setting row">
+      <label for="alert-near">Avión muy cerca de ti</label>
+      <input type="checkbox" id="alert-near" checked>
+    </div>
+    <div class="setting">
+      <label for="alert-near-km">Distancia de aviso: <b id="near-km-val">15</b> km</label>
+      <input type="range" id="alert-near-km" min="3" max="50" step="1" value="15">
+    </div>
+    <div class="setting row">
+      <label for="alert-sound">Sonido de alerta</label>
+      <input type="checkbox" id="alert-sound" checked>
+    </div>
+    <p class="hint">ℹ️ Las notificaciones funcionan mientras la app está abierta (en primer o segundo plano). En iPhone, instala la app en pantalla de inicio para recibirlas.</p>
+
+    <h3>🗺️ Mapa</h3>
+    <div class="setting row">
+      <label for="set-trails">Estelas de trayectoria</label>
+      <input type="checkbox" id="set-trails" checked>
+    </div>
+    <div class="setting row">
+      <label for="set-labels">Etiquetas de vuelo</label>
+      <input type="checkbox" id="set-labels" checked>
+    </div>
+
+    <h3>📡 Fuente de datos</h3>
+    <p class="hint" id="source-info">Fuente actual: —</p>
+
+    <h3>📲 Instalar en el móvil</h3>
+    <p class="hint"><b>Android (Chrome):</b> menú ⋮ → «Añadir a pantalla de inicio» / «Instalar app».<br>
+    <b>iPhone (Safari):</b> botón Compartir <span style="font-size:14px">⎋</span> → «Añadir a pantalla de inicio».</p>
+
+    <p class="hint credit">Datos: adsb.lol · adsb.fi · airplanes.live (red ADS-B comunitaria) · Rutas: adsbdb.com · Fotos: planespotters.net</p>
+  </div>
+
+  <!-- Toast de alertas en pantalla -->
+  <div id="toasts"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
